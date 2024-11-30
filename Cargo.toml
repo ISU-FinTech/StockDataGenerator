@@ -1,0 +1,20 @@
+[package]
+name = "StockDataGenerator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }   
+dotenvy = "0.15"                                   
+serde = { version = "1.0", features = ["derive"] } 
+actix-web = "4.0"                               
+serde_json = "1.0"
+rand_core = "0.6"
+actix-cors = "0.7.0"
+rust-argon2 = "2.1.0"
+rand = "0.8.5"
+reqwest = { version = "0.12.9", features = ["json"]}
+rand_distr = "0.4.3"
+rayon = "1.7"
+csv = "1.3.1"
+prost = "0.13.3"
