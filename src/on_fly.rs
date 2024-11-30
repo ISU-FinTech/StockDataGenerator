@@ -16,7 +16,7 @@ pub async fn on_fly() -> std::io::Result<()> {
     const SAMPLES_PER_SECOND: usize = 10;
     const TOTAL_SAMPLES: usize = SAMPLES_PER_SECOND * 60 * 60 * 8;
 
-    // fetch stock data
+    // Fetch stock data
     let client: Client = Client::new();
     let stock_data: StockResponse = match fetch_intraday_data(&client, &api_key).await {
         Ok(data) => data,
@@ -26,26 +26,19 @@ pub async fn on_fly() -> std::io::Result<()> {
         }
     };
 
-    let data: &Vec<Stock> = &stock_data.results;
+    let data: &[Stock] = &stock_data.results;
 
     let thread_pool: rayon::ThreadPool = ThreadPoolBuilder::new()
         .num_threads(NUM_THREADS)
         .build()
         .unwrap();
 
-    // Map each index and ticker
-    let ticker_to_index: HashMap<String, usize> = data
-        .iter()
-        .enumerate()
-        .map(|(index, stock)| (stock.T.clone(), index))
-        .collect();
-
-    // store the initial value for each stock
-    let current_values: Arc<Mutex<Vec<f64>>> = Arc::new(Mutex::new(
-        data.iter().map(|stock: &Stock| stock.o).collect::<Vec<f64>>(),
+    // Store prices in a HashMap
+    let current_prices: Arc<Mutex<HashMap<String, f64>>> = Arc::new(Mutex::new(
+        data.iter().map(|stock: &Stock| (stock.T.clone(), stock.o)).collect::<HashMap<String, f64>>(),
     ));
 
-    // store a normal distribution for each stock
+    // Store a normal distribution for each stock
     let normals: HashMap<String, Normal<f64>> = data.iter()
         .filter_map(|stock: &Stock| {
             let percent_change: f64 = (stock.c - stock.o) / stock.o;
@@ -56,10 +49,10 @@ pub async fn on_fly() -> std::io::Result<()> {
         })
         .collect();
 
-    // we generate one value per stock every 100ms interval
-    for i in 1..=TOTAL_SAMPLES {
+    // We generate one value per stock every 100ms interval
+    for i in 1..TOTAL_SAMPLES - 1 {
         let start_time: Instant = Instant::now();
-        let current_values_clone: Arc<Mutex<Vec<f64>>> = Arc::clone(&current_values);
+        let current_prices_clone: Arc<Mutex<HashMap<String, f64>>> = Arc::clone(&current_prices);
 
         thread_pool.install(|| {
             data.par_iter().for_each(|stock: &Stock| {
@@ -67,10 +60,8 @@ pub async fn on_fly() -> std::io::Result<()> {
                 let close: f64 = stock.c;
                 let mut rng: rand::prelude::ThreadRng = thread_rng();
 
-                let index: usize = ticker_to_index[ticker_name];
-                let mut current_values_guard: std::sync::MutexGuard<'_, Vec<f64>> = current_values_clone.lock().unwrap();
-
-                let prev_value: f64 = current_values_guard[index];
+                let mut current_prices_guard: std::sync::MutexGuard<'_, HashMap<String, f64>> = current_prices_clone.lock().unwrap();
+                let prev_value: f64 = *current_prices_guard.get(ticker_name).unwrap();
                 let remaining_steps: f64 = (TOTAL_SAMPLES - i) as f64;
 
                 if let Some(normal) = normals.get(ticker_name) {
@@ -78,7 +69,7 @@ pub async fn on_fly() -> std::io::Result<()> {
                     let correction: f64 = (close - prev_value) / remaining_steps;
                     let new_price: f64 = prev_value + noise + correction;
 
-                    current_values_guard[index] = new_price;
+                    current_prices_guard.insert(ticker_name.clone(), new_price);
                 }
             });
         });
@@ -89,15 +80,18 @@ pub async fn on_fly() -> std::io::Result<()> {
             sleep(Duration::from_millis(100) - elapsed);
         }
 
-        println!("Simulation {:?} Completed", i);
+        println!("Simulation {:?} Completed in {:?}", i, elapsed);
 
         // Jackson UDP send
     }
 
     {
-        let mut current_values_guard: std::sync::MutexGuard<'_, Vec<f64>> = current_values.lock().unwrap();
-        for (index, stock) in data.iter().enumerate() {
-            current_values_guard[index] = stock.c;
+        let mut current_prices_guard: std::sync::MutexGuard<'_, HashMap<String, f64>> = current_prices.lock().unwrap();
+        for (_, stock) in data.iter().enumerate() {
+            let ticker = &stock.T;
+            let close = stock.c; 
+    
+            current_prices_guard.insert(ticker.clone(), close);
         }
     }
 
@@ -107,7 +101,6 @@ pub async fn on_fly() -> std::io::Result<()> {
 
     Ok(())
 }
-
 
 async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<StockResponse, Box<dyn Error>> {
     const DATE: &str = "2024-11-26";
@@ -130,7 +123,7 @@ async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<StockResp
     let response_text: String = response.text().await?;
     let stock_data: StockResponse = serde_json::from_str(&response_text)?;
 
-    println!("{:?}", stock_data);
+    println!("Completed fetching data");
 
     Ok(stock_data)
 }

@@ -1,4 +1,4 @@
-use std::{env, error::Error, sync::Arc};
+use std::{env, error::Error, sync::Arc, time::{Duration, Instant}};
 use rand::thread_rng;
 use rand_distr::{Distribution, Normal};
 use reqwest::Client;
@@ -35,6 +35,7 @@ pub async fn preload() -> std::io::Result<()> {
             /*
                 Each thread will fully simulate the values for each stock
              */
+            let start_time: Instant = Instant::now();
             let ticker_name: String = stock.T.clone();
             let open: f64 = stock.o;
             let close: f64 = stock.c;
@@ -73,7 +74,8 @@ pub async fn preload() -> std::io::Result<()> {
             };
 
             stocks_lock.push(processed_stock);
-            println!("Completed Simulation for {:?}", ticker_name);
+            let elapsed: Duration = start_time.elapsed();
+            println!("Completed Simulation for {:?} in {:?}", ticker_name, elapsed);
         });
     });
 
@@ -103,7 +105,7 @@ async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<StockResp
     let response_text: String = response.text().await?;
     let stock_data: StockResponse = serde_json::from_str(&response_text)?;
 
-    println!("{:?}", stock_data);
+    println!("Completed fetching data");
 
     Ok(stock_data)
 }
