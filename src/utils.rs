@@ -1,9 +1,9 @@
-use std::{collections::HashMap, error::Error, net::SocketAddr};
+use std::{collections::HashMap, error::Error, net::SocketAddr, time::{Instant, SystemTime, UNIX_EPOCH}};
 use rand::thread_rng;
 use rand_distr::Normal;
 use reqwest::Client;
 use tokio::net::UdpSocket;
-use crate::{Stock, StockResponse};
+use crate::{Stock, StockMessage, StockResponse};
 use serde_json;
 
 /// Fetches the stock data.
@@ -38,7 +38,7 @@ pub async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<Stock
     Ok(stock_data)
 }
 
-/// Live multicast for on the fly data.
+/// Live multicast for on the fly data. (~90-95ms)
 /// 
 /// # Parameters
 /// - `data`: Hashmap with stock name and price.
@@ -75,16 +75,47 @@ pub async fn live_multicast(data: HashMap<String, f64>) -> std::io::Result<()> {
         }
     };
 
-    /*
-        Here is a problem this for loop take ~50-70 ms which greatly slows down each simulation to ~130-150 ms
-        Need to find a away to speed up this operation
-    */
+    let mut stock_group: Vec<(String, f64)> = Vec::new();
+    let mut count: i32 = 0;
+
+    let start: SystemTime = SystemTime::now();
+    let duration: std::time::Duration = start.duration_since(UNIX_EPOCH).unwrap();
+    let timestamp: u128 = duration.as_millis();
+
     for (stock_name, stock_value) in data {
-        let stock_message: String = serde_json::to_string(&(stock_name.clone(), stock_value)).unwrap();
+        stock_group.push((stock_name, stock_value));
+        count += 1;
+
+        if count == 40 {
+            let message: StockMessage = StockMessage {
+                timestamp,
+                stocks: stock_group.clone(),
+            };
+
+            let stock_message = serde_json::to_string(&message).unwrap();
+            let stock_message_bytes: &[u8] = stock_message.as_bytes();
+
+            println!("Sending group of 40 stocks, {} bytes", stock_message_bytes.len());
+
+            socket.send_to(stock_message_bytes, multicast_addr).await?;
+
+            stock_group.clear();
+            count = 0;
+        }
+    }
+
+    if !stock_group.is_empty() {
+        let message = StockMessage {
+            timestamp,
+            stocks: stock_group.clone(),
+        };
+
+        let stock_message = serde_json::to_string(&message).unwrap();
         let stock_message_bytes: &[u8] = stock_message.as_bytes();
-        
-        socket.send_to(stock_message_bytes, &multicast_addr).await?;
-        //println!("Sent stock: '{}' with value: {}", stock_name, stock_value);
+
+        println!("Sending remaining group of {} stocks, {} bytes", stock_group.len(), stock_message_bytes.len());
+
+        socket.send_to(stock_message_bytes, multicast_addr).await?;
     }
 
     println!("Multicast function completed");

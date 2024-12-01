@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // Data types to recieve and structure data
 
@@ -19,4 +19,10 @@ pub struct StockResponse {
     pub resultsCount: u64,
     pub adjusted: bool,
     pub results: Vec<Stock>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StockMessage {
+    pub timestamp: u128,
+    pub stocks: Vec<(String, f64)>,
 }
