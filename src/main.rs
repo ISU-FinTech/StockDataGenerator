@@ -5,7 +5,9 @@ mod preload;
 mod on_fly;
 mod models;
 mod utils;
+mod mappings;
 
+use mappings::TickerMapper;
 use models::*;
 use on_fly::*;
 use preload::*;
@@ -14,10 +16,11 @@ use utils::*;
 /// Main function.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // Alternate between preload and on_fly
     const NUM_THREADS: usize = 100;
     const SAMPLES_PER_SECOND: usize = 10;
     const TOTAL_SAMPLES: usize = SAMPLES_PER_SECOND * 60 * 60 * 8;
+
+    // Alternate between preload and on_fly
 
     //preload(NUM_THREADS, TOTAL_SAMPLES).await;
     on_fly(NUM_THREADS, TOTAL_SAMPLES).await;

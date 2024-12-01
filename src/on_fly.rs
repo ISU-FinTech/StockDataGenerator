@@ -9,7 +9,7 @@ use rayon::{ThreadPoolBuilder, iter::{IntoParallelRefIterator, ParallelIterator}
 
 use crate::*;
 
-/// Function to generate stock data points on the fly.
+/// Function to generate stock data points on the fly, generating and sending one round takes < 75ms.
 /// 
 /// # Parameters
 /// - `threads`: Number of threads to use.
@@ -29,6 +29,8 @@ pub async fn on_fly(threads: usize, total_samples: usize) -> std::io::Result<()>
             return Ok(()); 
         }
     };
+
+    let mapper: TickerMapper = TickerMapper::new(&stock_data);
 
     let data: &[Stock] = &stock_data.results;
 
@@ -81,7 +83,7 @@ pub async fn on_fly(threads: usize, total_samples: usize) -> std::io::Result<()>
             current_prices_guard.clone()
         };
 
-        live_multicast(cloned_data).await;
+        live_multicast(cloned_data, &mapper).await;
 
         let elapsed: Duration = start_time.elapsed();
 
@@ -105,7 +107,7 @@ pub async fn on_fly(threads: usize, total_samples: usize) -> std::io::Result<()>
         current_prices_guard.clone()
     };
 
-    live_multicast(cloned_data).await;
+    live_multicast(cloned_data, &mapper).await;
 
     let elapsed: Duration = start_time.elapsed();
 

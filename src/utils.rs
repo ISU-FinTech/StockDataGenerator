@@ -1,28 +1,36 @@
-use std::{collections::HashMap, error::Error, net::SocketAddr, time::{Instant, SystemTime, UNIX_EPOCH}};
+use crate::{mappings::TickerMapper, Stock, StockMessage, StockResponse};
 use rand::thread_rng;
 use rand_distr::Normal;
 use reqwest::Client;
-use tokio::net::UdpSocket;
-use crate::{Stock, StockMessage, StockResponse};
 use serde_json;
+use std::{
+    collections::HashMap,
+    error::Error,
+    net::SocketAddr,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
+use tokio::io::AsyncWriteExt;
+use tokio::net::UdpSocket;
 
 /// Fetches the stock data.
-/// 
+///
 /// # Parameters
 /// - `client`: HTTP client.
 /// - `api_key`: Key for polygon api.
-/// 
-pub async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<StockResponse, Box<dyn Error>> {
+///
+pub async fn fetch_intraday_data(
+    client: &Client,
+    api_key: &str,
+) -> Result<StockResponse, Box<dyn Error>> {
     const DATE: &str = "2024-11-26";
 
     let url: String = format!(
         "https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{}?adjusted=true&apiKey={}",
-        DATE,
-        api_key
+        DATE, api_key
     );
 
     let response: reqwest::Response = client.get(&url).send().await?;
-    
+
     if !response.status().is_success() {
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -38,84 +46,68 @@ pub async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<Stock
     Ok(stock_data)
 }
 
-/// Live multicast for on the fly data. (~90-95ms)
-/// 
+/// Broadcasts stock data using UDP Multicast.
+///
 /// # Parameters
-/// - `data`: Hashmap with stock name and price.
-/// 
-pub async fn live_multicast(data: HashMap<String, f64>) -> std::io::Result<()> {
+/// - `data`: Hashmap of ticker and values.
+/// - `ticker_mapper`: Mappings between tickers and numbers.
+///
+pub async fn live_multicast(
+    data: HashMap<String, f64>,
+    ticker_mapper: &TickerMapper,
+) -> std::io::Result<()> {
     const ADDRESS: &str = "239.0.0.1";
     const PORT: u16 = 6000;
 
-    println!("Starting multicast function");
+    println!("Starting multicast");
 
-    let message: String = match serde_json::to_string(&data) {
-        Ok(msg) => msg,
-        Err(err) => {
-            eprintln!("Message error: {}", err);
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Message failed"));
-        }
-    };
+    let multicast_addr: SocketAddr = format!("{}:{}", ADDRESS, PORT)
+        .parse()
+        .expect("Invalid address");
 
-    println!("Message size: {} bytes", message.len());
+    let socket = UdpSocket::bind("0.0.0.0:0")
+        .await
+        .expect("Failed to bind socket");
 
-    let multicast_addr: SocketAddr = match format!("{}:{}", ADDRESS, PORT).parse() {
-        Ok(addr) => addr,
-        Err(err) => {
-            eprintln!("Address error: {}", err);
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid address"));
-        }
-    };
-
-    let socket: UdpSocket = match UdpSocket::bind("0.0.0.0:0").await {
-        Ok(sock) => sock,
-        Err(err) => {
-            eprintln!("Socket error: {}", err);
-            return Err(err);
-        }
-    };
-
-    let mut stock_group: Vec<(String, f64)> = Vec::new();
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut stock_group: Vec<(u16, f64)> = Vec::new();
     let mut count: i32 = 0;
 
     let start: SystemTime = SystemTime::now();
     let duration: std::time::Duration = start.duration_since(UNIX_EPOCH).unwrap();
-    let timestamp: u128 = duration.as_millis();
+    let timestamp: u64 = duration.as_millis() as u64;
 
     for (stock_name, stock_value) in data {
-        stock_group.push((stock_name, stock_value));
+        if let Some(encoded_ticker) = ticker_mapper.encode(&stock_name) {
+            stock_group.push((encoded_ticker, stock_value));
+        } else {
+            eprintln!("Failed to encode ticker: {}", stock_name);
+            continue;
+        }
+
         count += 1;
 
-        if count == 40 {
-            let message: StockMessage = StockMessage {
-                timestamp,
-                stocks: stock_group.clone(),
-            };
+        if count == 100 {
+            build_packet(timestamp, &stock_group, &mut buffer);
+            //println!("Sending group of 50 stocks, {} bytes", buffer.len());
 
-            let stock_message = serde_json::to_string(&message).unwrap();
-            let stock_message_bytes: &[u8] = stock_message.as_bytes();
-
-            println!("Sending group of 40 stocks, {} bytes", stock_message_bytes.len());
-
-            socket.send_to(stock_message_bytes, multicast_addr).await?;
-
+            socket.send_to(&buffer, multicast_addr).await?;
+            buffer.clear();
             stock_group.clear();
             count = 0;
         }
     }
 
+    // Send any remaining stocks
     if !stock_group.is_empty() {
-        let message = StockMessage {
-            timestamp,
-            stocks: stock_group.clone(),
-        };
+        build_packet(timestamp, &stock_group, &mut buffer);
+        println!(
+            "Sending remaining group of {} stocks, {} bytes",
+            stock_group.len(),
+            buffer.len()
+        );
 
-        let stock_message = serde_json::to_string(&message).unwrap();
-        let stock_message_bytes: &[u8] = stock_message.as_bytes();
-
-        println!("Sending remaining group of {} stocks, {} bytes", stock_group.len(), stock_message_bytes.len());
-
-        socket.send_to(stock_message_bytes, multicast_addr).await?;
+        socket.send_to(&buffer, multicast_addr).await?;
     }
 
     println!("Multicast function completed");
@@ -124,10 +116,10 @@ pub async fn live_multicast(data: HashMap<String, f64>) -> std::io::Result<()> {
 }
 
 /// Send the preloaded data to the client.
-/// 
+///
 /// # Parameters
 /// - `data`: Hashmap with stock name and array of prices.
-/// 
+///
 pub async fn send_preload(data: HashMap<String, Vec<f64>>) -> std::io::Result<()> {
     // not sure how to do this, maybe chunking up the packets
 
@@ -135,11 +127,11 @@ pub async fn send_preload(data: HashMap<String, Vec<f64>>) -> std::io::Result<()
 }
 
 /// Function to generate a normal distribution.
-/// 
+///
 /// # Parameters
 /// - `stock`: Information related to the stock.
 /// - `samples`: Number of samples to take.
-/// 
+///
 pub fn create_distribution(stock: &Stock, samples: usize) -> Normal<f64> {
     let percent_change: f64 = (stock.c - stock.o) / stock.o;
 
@@ -148,4 +140,20 @@ pub fn create_distribution(stock: &Stock, samples: usize) -> Normal<f64> {
     let volatility: f64 = (percent_change * random_factor) / (samples as f64).sqrt();
 
     Normal::new(0.0, volatility).unwrap()
+}
+
+/// Build packet for multicast.
+///
+/// # Parameters
+/// - `timestamp`: Timestamp of the generate price.
+/// - `stocks`: Array of the numbers and related prices.
+/// - `buffer`: Buffer to store value to send
+///
+fn build_packet(timestamp: u64, stocks: &[(u16, f64)], buffer: &mut Vec<u8>) {
+    buffer.extend_from_slice(&timestamp.to_be_bytes());
+
+    for (ticker, price) in stocks {
+        buffer.extend_from_slice(&ticker.to_be_bytes());
+        buffer.extend_from_slice(&price.to_be_bytes());
+    }
 }

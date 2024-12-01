@@ -24,5 +24,5 @@ pub struct StockResponse {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StockMessage {
     pub timestamp: u128,
-    pub stocks: Vec<(String, f64)>,
+    pub stocks: Vec<(u16, f64)>,
 }
