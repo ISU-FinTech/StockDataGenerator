@@ -77,7 +77,7 @@ pub async fn preload() -> std::io::Result<()> {
         current_prices_guard.clone()
     };
 
-    preload_multicast(cloned_data);
+    send_preload(cloned_data);
 
     Ok(())
 }

@@ -80,7 +80,7 @@ pub async fn live_multicast(data: HashMap<String, f64>) -> std::io::Result<()> {
 }
 
 
-pub async fn preload_multicast(data: HashMap<String, Vec<f64>>) -> std::io::Result<()> {
+pub async fn send_preload(data: HashMap<String, Vec<f64>>) -> std::io::Result<()> {
     // not sure how to do this, maybe chunking up the packets
 
     Ok(())
