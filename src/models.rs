@@ -20,9 +20,3 @@ pub struct StockResponse {
     pub adjusted: bool,
     pub results: Vec<Stock>,
 }
-
-#[derive(Debug)]
-pub struct ProcessedStock {
-    pub T: String,
-    pub prices: Vec<f64>,
-}

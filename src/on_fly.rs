@@ -74,16 +74,19 @@ pub async fn on_fly() -> std::io::Result<()> {
             });
         });
 
+        let cloned_data: HashMap<String, f64> = {
+            let current_prices_guard: std::sync::MutexGuard<'_, HashMap<String, f64>> = current_prices.lock().unwrap();
+            current_prices_guard.clone()
+        };
+
+        live_multicast(cloned_data).await;
+
         let elapsed: Duration = start_time.elapsed();
 
-        if elapsed < Duration::from_millis(100) {
-            sleep(Duration::from_millis(100) - elapsed);
-        }
-
-        println!("Simulation {:?} Completed in {:?}", i, elapsed);
-
-        // Jackson UDP send
+        println!("Simulation completed in {:?}", elapsed);
     }
+
+    let start_time: Instant = Instant::now();
 
     {
         let mut current_prices_guard: std::sync::MutexGuard<'_, HashMap<String, f64>> = current_prices.lock().unwrap();
@@ -95,35 +98,18 @@ pub async fn on_fly() -> std::io::Result<()> {
         }
     }
 
-    // Final Jackson UDP send
+    let cloned_data: HashMap<String, f64> = {
+        let current_prices_guard: std::sync::MutexGuard<'_, HashMap<String, f64>> = current_prices.lock().unwrap();
+        current_prices_guard.clone()
+    };
+
+    live_multicast(cloned_data).await;
+
+    let elapsed: Duration = start_time.elapsed();
+
+    println!("Simulation completed in {:?}", elapsed);
 
     println!("Done");
 
     Ok(())
-}
-
-async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<StockResponse, Box<dyn Error>> {
-    const DATE: &str = "2024-11-26";
-
-    let url: String = format!(
-        "https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{}?adjusted=true&apiKey={}",
-        DATE,
-        api_key
-    );
-
-    let response = client.get(&url).send().await?;
-    
-    if !response.status().is_success() {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("API request failed with status: {}", response.status()),
-        )));
-    }
-
-    let response_text: String = response.text().await?;
-    let stock_data: StockResponse = serde_json::from_str(&response_text)?;
-
-    println!("Completed fetching data");
-
-    Ok(stock_data)
 }

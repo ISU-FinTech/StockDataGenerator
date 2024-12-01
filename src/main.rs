@@ -4,16 +4,19 @@ use actix_web::{App, HttpServer};
 mod preload;
 mod on_fly;
 mod models;
+mod utils;
+
 use models::*;
 use on_fly::*;
 use preload::*;
+use utils::*;
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Alternate between preload and on_fly
 
-    //preload().await;
-    on_fly().await;
+    preload().await;
+    //on_fly().await;
 
     HttpServer::new(|| {
         App::new().wrap(Cors::default())
