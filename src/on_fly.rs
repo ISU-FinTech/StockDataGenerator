@@ -9,12 +9,16 @@ use rayon::{ThreadPoolBuilder, iter::{IntoParallelRefIterator, ParallelIterator}
 
 use crate::*;
 
-pub async fn on_fly() -> std::io::Result<()> {
+/// Function to generate stock data points on the fly.
+/// 
+/// # Parameters
+/// - `threads`: Number of threads to use.
+/// - `total_samples`: Total number of values to generate per stock.
+/// 
+pub async fn on_fly(threads: usize, total_samples: usize) -> std::io::Result<()> {
     dotenv().ok();
     let api_key: String = env::var("API_KEY").expect("No API key set");
-    const NUM_THREADS: usize = 100;
-    const SAMPLES_PER_SECOND: usize = 10;
-    const TOTAL_SAMPLES: usize = SAMPLES_PER_SECOND * 60 * 60 * 8;
+    
 
     // Fetch stock data
     let client: Client = Client::new();
@@ -29,7 +33,7 @@ pub async fn on_fly() -> std::io::Result<()> {
     let data: &[Stock] = &stock_data.results;
 
     let thread_pool: rayon::ThreadPool = ThreadPoolBuilder::new()
-        .num_threads(NUM_THREADS)
+        .num_threads(threads)
         .build()
         .unwrap();
 
@@ -41,16 +45,14 @@ pub async fn on_fly() -> std::io::Result<()> {
     // Store a normal distribution for each stock
     let normals: HashMap<String, Normal<f64>> = data.iter()
         .filter_map(|stock: &Stock| {
-            let percent_change: f64 = (stock.c - stock.o) / stock.o;
-            let random_factor: f64 = (thread_rng().gen::<f64>() * 1.5).max(0.5) + (stock.o * 0.35);
-            let volatility: f64 = (percent_change * random_factor) / (TOTAL_SAMPLES as f64).sqrt();
+            let normal: Normal<f64> = create_distribution(stock, total_samples);
 
-            Normal::new(0.0, volatility).ok().map(|normal: Normal<f64>| (stock.T.clone(), normal))
+            Some((stock.T.clone(), normal))
         })
         .collect();
 
     // We generate one value per stock every 100ms interval
-    for i in 1..TOTAL_SAMPLES - 1 {
+    for i in 1..total_samples - 1 {
         let start_time: Instant = Instant::now();
         let current_prices_clone: Arc<Mutex<HashMap<String, f64>>> = Arc::clone(&current_prices);
 
@@ -62,7 +64,7 @@ pub async fn on_fly() -> std::io::Result<()> {
 
                 let mut current_prices_guard: std::sync::MutexGuard<'_, HashMap<String, f64>> = current_prices_clone.lock().unwrap();
                 let prev_value: f64 = *current_prices_guard.get(ticker_name).unwrap();
-                let remaining_steps: f64 = (TOTAL_SAMPLES - i) as f64;
+                let remaining_steps: f64 = (total_samples - i) as f64;
 
                 if let Some(normal) = normals.get(ticker_name) {
                     let noise: f64 = normal.sample(&mut rng);

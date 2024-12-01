@@ -1,9 +1,17 @@
 use std::{collections::HashMap, error::Error, net::SocketAddr};
+use rand::thread_rng;
+use rand_distr::Normal;
 use reqwest::Client;
 use tokio::net::UdpSocket;
-use crate::StockResponse;
+use crate::{Stock, StockResponse};
 use serde_json;
 
+/// Fetches the stock data.
+/// 
+/// # Parameters
+/// - `client`: HTTP client.
+/// - `api_key`: Key for polygon api.
+/// 
 pub async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<StockResponse, Box<dyn Error>> {
     const DATE: &str = "2024-11-26";
 
@@ -30,6 +38,11 @@ pub async fn fetch_intraday_data(client: &Client, api_key: &str) -> Result<Stock
     Ok(stock_data)
 }
 
+/// Live multicast for on the fly data.
+/// 
+/// # Parameters
+/// - `data`: Hashmap with stock name and price.
+/// 
 pub async fn live_multicast(data: HashMap<String, f64>) -> std::io::Result<()> {
     const ADDRESS: &str = "239.0.0.1";
     const PORT: u16 = 6000;
@@ -79,9 +92,29 @@ pub async fn live_multicast(data: HashMap<String, f64>) -> std::io::Result<()> {
     Ok(())
 }
 
-
+/// Send the preloaded data to the client.
+/// 
+/// # Parameters
+/// - `data`: Hashmap with stock name and array of prices.
+/// 
 pub async fn send_preload(data: HashMap<String, Vec<f64>>) -> std::io::Result<()> {
     // not sure how to do this, maybe chunking up the packets
 
     Ok(())
+}
+
+/// Function to generate a normal distribution.
+/// 
+/// # Parameters
+/// - `stock`: Information related to the stock.
+/// - `samples`: Number of samples to take.
+/// 
+pub fn create_distribution(stock: &Stock, samples: usize) -> Normal<f64> {
+    let percent_change: f64 = (stock.c - stock.o) / stock.o;
+
+    let random_factor: f64 = (rand::random::<f64>() * 1.5).max(0.5) + (stock.o * 0.35);
+
+    let volatility: f64 = (percent_change * random_factor) / (samples as f64).sqrt();
+
+    Normal::new(0.0, volatility).unwrap()
 }

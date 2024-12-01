@@ -3,17 +3,20 @@ use rand::thread_rng;
 use rand_distr::{Distribution, Normal};
 use reqwest::Client;
 use dotenvy::dotenv;
-use rayon::{iter::{IntoParallelRefIterator, ParallelIterator}, ThreadPoolBuilder};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tokio::sync::Mutex;
 
 use crate::*;
 
-pub async fn preload() -> std::io::Result<()> {
+/// Function to generate all stock data points in advance.
+/// 
+/// # Parameters
+/// - `threads`: Number of threads to use.
+/// - `total_samples`: Total number of values to generate per stock.
+/// 
+pub async fn preload(threads: usize, total_samples: usize) -> std::io::Result<()> {
     dotenv().ok();
     let api_key = env::var("API_KEY").expect("No API key set");
-    const NUM_THREADS: usize = 100;
-    const SAMPLES_PER_SECOND: usize = 10;
-    const TOTAL_SAMPLES: usize = SAMPLES_PER_SECOND * 60 * 60 * 8;
 
     // fetch data
     let client: Client = Client::new();
@@ -27,7 +30,7 @@ pub async fn preload() -> std::io::Result<()> {
 
     let data: &[Stock] = &stock_data.results;
 
-    let thread_pool: rayon::ThreadPool = rayon::ThreadPoolBuilder::new().num_threads(NUM_THREADS).build().unwrap();
+    let thread_pool: rayon::ThreadPool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
     let stocks: Arc<Mutex<HashMap<String, Vec<f64>>>> = Arc::new(Mutex::new(HashMap::new()));
 
     thread_pool.install(|| {
@@ -39,16 +42,12 @@ pub async fn preload() -> std::io::Result<()> {
             let ticker_name: String = stock.T.clone();
             let open: f64 = stock.o;
             let close: f64 = stock.c;
-            let total_samples: usize = TOTAL_SAMPLES;
+            let total_samples: usize = total_samples;
 
             let mut values: Vec<f64> = vec![0.0; total_samples];
             values[0] = open;
 
-            let percent_change: f64 = (close - open) / open;
-            let random_factor: f64 = (rand::random::<f64>() * 1.5).max(0.5) + (open * 0.35);
-            let volatility: f64 = (percent_change * random_factor) / (total_samples as f64).sqrt();
-
-            let normal: Normal<f64> = Normal::new(0.0, volatility).unwrap();
+            let normal = create_distribution(stock, total_samples);
             let mut rng: rand::prelude::ThreadRng = rand::thread_rng();
 
             for i in 1..total_samples - 1 {

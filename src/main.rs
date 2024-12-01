@@ -11,12 +11,16 @@ use on_fly::*;
 use preload::*;
 use utils::*;
 
+/// Main function.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Alternate between preload and on_fly
+    const NUM_THREADS: usize = 100;
+    const SAMPLES_PER_SECOND: usize = 10;
+    const TOTAL_SAMPLES: usize = SAMPLES_PER_SECOND * 60 * 60 * 8;
 
-    preload().await;
-    //on_fly().await;
+    //preload(NUM_THREADS, TOTAL_SAMPLES).await;
+    on_fly(NUM_THREADS, TOTAL_SAMPLES).await;
 
     HttpServer::new(|| {
         App::new().wrap(Cors::default())
