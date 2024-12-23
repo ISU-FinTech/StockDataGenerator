@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
+use serde::Serialize;
+
 use crate::StockResponse;
 
+#[derive(Serialize, Clone)]
 pub struct TickerMapper {
-    ticker_to_number: HashMap<String, u16>,
-    number_to_ticker: HashMap<u16, String>,
+    pub ticker_to_number: HashMap<String, u16>,
+    pub number_to_ticker: HashMap<u16, String>,
 }
 
 /// Function to create mappings between ticker (5 bytes) and number (2 bytes).
@@ -35,7 +38,7 @@ impl TickerMapper {
         self.ticker_to_number.get(ticker).cloned()
     }
 
-    // We need to send the number to ticker hashmap to the client side so they can decode
+    // Create a API endpoint so client can get the hash to decode the key
     pub fn decode(&self, number: u16) -> Option<String> {
         self.number_to_ticker.get(&number).cloned()
     }

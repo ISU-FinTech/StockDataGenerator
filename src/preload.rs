@@ -14,23 +14,11 @@ use crate::*;
 /// - `threads`: Number of threads to use.
 /// - `total_samples`: Total number of values to generate per stock.
 /// 
-pub async fn preload(threads: usize, total_samples: usize) -> std::io::Result<()> {
-    dotenv().ok();
-    let api_key = env::var("API_KEY").expect("No API key set");
-
-    // fetch data
-    let client: Client = Client::new();
-    let stock_data: StockResponse = match fetch_intraday_data(&client, &api_key).await {
-        Ok(data) => data,
-        Err(err) => {
-            eprintln!("Error fetching stock data: {}", err);
-            return Ok(()); 
-        }
-    };
-
-    let data: &[Stock] = &stock_data.results;
-
-    let thread_pool: rayon::ThreadPool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+pub async fn preload(threads: usize, total_samples: usize, data: &[Stock]) -> std::io::Result<()> {
+    let thread_pool: rayon::ThreadPool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .unwrap();
     let stocks: Arc<Mutex<HashMap<String, Vec<f64>>>> = Arc::new(Mutex::new(HashMap::new()));
 
     thread_pool.install(|| {

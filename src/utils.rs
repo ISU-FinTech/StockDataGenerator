@@ -1,4 +1,4 @@
-use crate::{mappings::TickerMapper, Stock, StockMessage, StockResponse};
+use crate::{mappings::{TickerMapper, self}, Stock, StockMessage, StockResponse};
 use rand::thread_rng;
 use rand_distr::Normal;
 use reqwest::Client;
@@ -7,7 +7,7 @@ use std::{
     collections::HashMap,
     error::Error,
     net::SocketAddr,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH}, sync::Arc,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::UdpSocket;
@@ -53,13 +53,11 @@ pub async fn fetch_intraday_data(
 /// - `ticker_mapper`: Mappings between tickers and numbers.
 ///
 pub async fn live_multicast(
-    data: HashMap<String, f64>,
-    ticker_mapper: &TickerMapper,
+    data: HashMap<String, f64>, 
+    ticker_mapper: TickerMapper,
 ) -> std::io::Result<()> {
     const ADDRESS: &str = "239.0.0.1";
     const PORT: u16 = 6000;
-
-    println!("Starting multicast");
 
     let multicast_addr: SocketAddr = format!("{}:{}", ADDRESS, PORT)
         .parse()
@@ -77,9 +75,9 @@ pub async fn live_multicast(
     let duration: std::time::Duration = start.duration_since(UNIX_EPOCH).unwrap();
     let timestamp: u64 = duration.as_millis() as u64;
 
-    for (stock_name, stock_value) in data {
+    for (stock_name, stock_value) in data.iter() {
         if let Some(encoded_ticker) = ticker_mapper.encode(&stock_name) {
-            stock_group.push((encoded_ticker, stock_value));
+            stock_group.push((encoded_ticker, *stock_value));
         } else {
             eprintln!("Failed to encode ticker: {}", stock_name);
             continue;
@@ -89,8 +87,6 @@ pub async fn live_multicast(
 
         if count == 100 {
             build_packet(timestamp, &stock_group, &mut buffer);
-            //println!("Sending group of 50 stocks, {} bytes", buffer.len());
-
             socket.send_to(&buffer, multicast_addr).await?;
             buffer.clear();
             stock_group.clear();
@@ -98,22 +94,14 @@ pub async fn live_multicast(
         }
     }
 
-    // Send any remaining stocks
     if !stock_group.is_empty() {
         build_packet(timestamp, &stock_group, &mut buffer);
-        println!(
-            "Sending remaining group of {} stocks, {} bytes",
-            stock_group.len(),
-            buffer.len()
-        );
-
         socket.send_to(&buffer, multicast_addr).await?;
     }
 
-    println!("Multicast function completed");
-
     Ok(())
 }
+
 
 /// Send the preloaded data to the client.
 ///
