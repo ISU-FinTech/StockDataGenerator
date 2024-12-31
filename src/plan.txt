@@ -1,0 +1,2 @@
+1. When generating data points look for a more optimal method instead of the current mutex method (Atomics, Spin, Spin-Free)
+2. Look into Protocol Buffers for the binary data transmission format, maybe gRPC
